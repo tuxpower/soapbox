@@ -348,3 +348,50 @@ func (s *server) GetApplication(ctx context.Context, req *pb.GetApplicationReque
 func setPbTimestamp(ts *gpb.Timestamp, t time.Time) {
 	ts.Seconds = t.Unix()
 }
+
+func (s *server) DeleteApplication(ctx context.Context, app *pb.Application) (*pb.Empty, error) {
+	// start a terraform job in the background
+	go s.deleteAppInfrastructure(app)
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, errors.Wrap(err, "beginning transaction")
+	}
+
+	query := `DELETE FROM applications WHERE id = $1`
+	if _, err := tx.Exec(query, app.Id); err != nil {
+		return nil, errors.Wrap(err, "deleting application")
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, errors.Wrap(err, "committing transaction")
+	}
+
+	return &pb.Empty{}, nil
+}
+
+func (s *server) deleteAppInfrastructure(app *pb.Application) {
+	scriptsPath := filepath.Join("ops", "aws", "terraform", "scripts")
+
+	slug := app.GetSlug()
+	var tempDir string
+
+	log.Printf("running terraform destroy")
+	cmd := exec.Command("./delete_app_tf.sh",
+		"-a", slug,
+		"-e", "test")
+	cmd.Dir = scriptsPath
+	var buf bytes.Buffer
+	cmd.Stdout = &buf
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		log.Printf("error running delete_app_tf.sh")
+	}
+	tempDir = strings.TrimSpace(buf.String())
+
+	if tempDir != "" {
+		defer os.RemoveAll(tempDir)
+	}
+
+	log.Printf("Success - all application resources destroyed.")
+}

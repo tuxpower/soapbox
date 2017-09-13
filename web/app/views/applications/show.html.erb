@@ -70,6 +70,7 @@
     <p class="card-text text-muted"><small>Created: <%= Time.at(@app.created_at.seconds).strftime('%b %-d, %Y') %></small></p>
     <%= link_to 'View Environments', application_environments_path(@app.id), class: "btn btn-secondary" %>
     <%= link_to 'View Deployments', application_deployments_path(@app.id), class: "btn btn-secondary" %>
+    <%= link_to 'Delete Application', application_path(@app.id), method: :delete, class: "btn btn-danger", data: { confirm: 'Are you sure? This will remove all application resources and make the application unavailable.' } %>
   </div>
 </div>
 
