@@ -15,6 +15,21 @@ Soapbox provides managed web application hosting services, encapsulating best-pr
  - When done, `CTRL-C` to stop the containers. Don't use `docker-compose down`, as that will remove your containers and erase the DB.
  - To start back up again, use `docker-compose up --no-recreate`.
 
+### Useful docker-compose commands
+
+ - Connect to the soapboxd container:
+```
+$ docker-compose run soapboxd sh
+```
+ - Connect to the database console:
+```
+$ docker-compose run postgres psql -h postgres -U soapbox -d soapbox_dev
+```
+- Connect to the rails console:
+```
+$ docker-compose run rails rails c
+```
+
 ### Local requirements without docker-compose
 
  - Go 1.8 or greater - see directions [here](https://golang.org/doc/install)

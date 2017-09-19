@@ -24,8 +24,15 @@ enum ApplicationType {
 
 enum CreationState {
     CREATE_INFRASTRUCTURE_WAIT = 0;
-    SUCCEEDED = 1;
-    FAILED = 2;
+    CREATE_INFRASTRUCTURE_SUCCEEDED = 1;
+    CREATE_INFRASTRUCTURE_FAILED = 2;
+}
+
+enum DeletionState {
+    NOT_DELETED = 0;
+    DELETE_INFRASTRUCTURE_WAIT = 1;
+    DELETE_INFRASTRUCTURE_SUCCEEDED = 2;
+    DELETE_INFRASTRUCTURE_FAILED = 3;
 }
 
 message Application {
@@ -42,6 +49,7 @@ message Application {
     string slug = 11;
     string internal_dns = 12;
     CreationState creation_state = 13;
+    DeletionState deletion_state = 14;
 }
 
 message ListApplicationRequest {

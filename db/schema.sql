@@ -1,8 +1,16 @@
 create type app_type as enum ('server', 'cronjob');
 create type creation_state_type as enum (
        'CREATE_INFRASTRUCTURE_WAIT',
-       'SUCCEEDED',
-       'FAILED');
+       'CREATE_INFRASTRUCTURE_SUCCEEDED',
+       'CREATE_INFRASTRUCTURE_FAILED'
+ );
+
+create type deletion_state_type as enum (
+      'NOT_DELETED',
+      'DELETE_INFRASTRUCTURE_WAIT',
+      'DELETE_INFRASTRUCTURE_SUCCEEDED',
+      'DELETE_INFRASTRUCTURE_FAILED'
+);
 
 create table users (
       id serial not null primary key,
@@ -29,8 +37,10 @@ create table applications (
        dockerfile_path text,
        entrypoint_override text,
        creation_state creation_state_type not null default 'CREATE_INFRASTRUCTURE_WAIT',
+       deletion_state deletion_state_type not null default 'NOT_DELETED',
        created_at timestamp with time zone not null default now(),
-       updated_at timestamp with time zone not null default now()
+       updated_at timestamp with time zone not null default now(),
+       deleted_at timestamp with time zone
 );
 
 create table environments (
@@ -70,11 +80,13 @@ create table deployments (
 
 create type activity_type as enum (
         'application_created',
+        'application_deleted',
         'deployment_started',
         'deployment_success',
         'deployment_failure',
         'environment_created',
-        'environment_destroyed');
+        'environment_destroyed'
+);
 
 create table activities (
         id serial not null primary key,

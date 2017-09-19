@@ -52,6 +52,7 @@ func (s *server) CreateApplication(ctx context.Context, app *pb.Application) (*p
 		CreatedAt:          time.Now(),
 		UpdatedAt:          time.Now(),
 		CreationState:      models.CreationStateTypeCreateInfrastructureWait,
+		DeletionState:      models.DeletionStateTypeNotDeleted,
 	}
 
 	if err := model.Insert(s.db); err != nil {
@@ -76,10 +77,10 @@ func (s *server) createAppInfrastructure(app *pb.Application) {
 	}
 
 	do := func(f func() error) {
-		if app.CreationState != pb.CreationState_FAILED {
+		if app.CreationState != pb.CreationState_CREATE_INFRASTRUCTURE_FAILED {
 			if err := f(); err != nil {
 				log.Printf("app creation failed: %v", err)
-				setState(pb.CreationState_FAILED)
+				setState(pb.CreationState_CREATE_INFRASTRUCTURE_FAILED)
 			}
 		}
 	}
@@ -192,16 +193,16 @@ func (s *server) createAppInfrastructure(app *pb.Application) {
 		})
 
 		do(func() error {
-			setState(pb.CreationState_SUCCEEDED)
+			setState(pb.CreationState_CREATE_INFRASTRUCTURE_SUCCEEDED)
 			log.Printf("done")
-			if err := s.AddApplicationActivity(context.Background(), app.GetId(), app.GetUserId()); err != nil {
+			if err := s.AddApplicationActivity(context.Background(), app.GetId(), app.GetUserId(), models.ActivityTypeApplicationCreated); err != nil {
 				return errors.Wrap(err, "error adding activity")
 			}
 			return nil
 		})
-	case pb.CreationState_SUCCEEDED:
+	case pb.CreationState_CREATE_INFRASTRUCTURE_SUCCEEDED:
 		log.Printf("creation already succeeded, doing nothing")
-	case pb.CreationState_FAILED:
+	case pb.CreationState_CREATE_INFRASTRUCTURE_FAILED:
 		// TODO(paulsmith): advance this to
 		// CREATE_INFRASTRUCTURE_WAIT state with some retry
 		// logic like max attempts
@@ -282,10 +283,10 @@ func creationStateTypeModelToPb(cst models.CreationStateType) pb.CreationState {
 	switch cst {
 	case models.CreationStateTypeCreateInfrastructureWait:
 		return pb.CreationState_CREATE_INFRASTRUCTURE_WAIT
-	case models.CreationStateTypeSucceeded:
-		return pb.CreationState_SUCCEEDED
-	case models.CreationStateTypeFailed:
-		return pb.CreationState_FAILED
+	case models.CreationStateTypeCreateInfrastructureSucceeded:
+		return pb.CreationState_CREATE_INFRASTRUCTURE_SUCCEEDED
+	case models.CreationStateTypeCreateInfrastructureFailed:
+		return pb.CreationState_CREATE_INFRASTRUCTURE_FAILED
 	default:
 		panic("shouldn't get here")
 	}
@@ -295,10 +296,40 @@ func creationStateTypePbToModel(cst pb.CreationState) models.CreationStateType {
 	switch cst {
 	case pb.CreationState_CREATE_INFRASTRUCTURE_WAIT:
 		return models.CreationStateTypeCreateInfrastructureWait
-	case pb.CreationState_SUCCEEDED:
-		return models.CreationStateTypeSucceeded
-	case pb.CreationState_FAILED:
-		return models.CreationStateTypeFailed
+	case pb.CreationState_CREATE_INFRASTRUCTURE_SUCCEEDED:
+		return models.CreationStateTypeCreateInfrastructureSucceeded
+	case pb.CreationState_CREATE_INFRASTRUCTURE_FAILED:
+		return models.CreationStateTypeCreateInfrastructureFailed
+	default:
+		panic("shouldn't get here")
+	}
+}
+
+func deletionStateTypeModelToPb(cst models.DeletionStateType) pb.DeletionState {
+	switch cst {
+	case models.DeletionStateTypeNotDeleted:
+		return pb.DeletionState_NOT_DELETED
+	case models.DeletionStateTypeDeleteInfrastructureWait:
+		return pb.DeletionState_DELETE_INFRASTRUCTURE_WAIT
+	case models.DeletionStateTypeDeleteInfrastructureSucceeded:
+		return pb.DeletionState_DELETE_INFRASTRUCTURE_SUCCEEDED
+	case models.DeletionStateTypeDeleteInfrastructureFailed:
+		return pb.DeletionState_DELETE_INFRASTRUCTURE_FAILED
+	default:
+		panic("shouldn't get here")
+	}
+}
+
+func deletionStateTypePbToModel(cst pb.DeletionState) models.DeletionStateType {
+	switch cst {
+	case pb.DeletionState_NOT_DELETED:
+		return models.DeletionStateTypeNotDeleted
+	case pb.DeletionState_DELETE_INFRASTRUCTURE_WAIT:
+		return models.DeletionStateTypeDeleteInfrastructureWait
+	case pb.DeletionState_DELETE_INFRASTRUCTURE_SUCCEEDED:
+		return models.DeletionStateTypeDeleteInfrastructureSucceeded
+	case pb.DeletionState_DELETE_INFRASTRUCTURE_FAILED:
+		return models.DeletionStateTypeDeleteInfrastructureFailed
 	default:
 		panic("shouldn't get here")
 	}
@@ -341,6 +372,7 @@ func (s *server) GetApplication(ctx context.Context, req *pb.GetApplicationReque
 	setPbTimestamp(app.CreatedAt, model.CreatedAt)
 
 	app.CreationState = creationStateTypeModelToPb(model.CreationState)
+	app.DeletionState = deletionStateTypeModelToPb(model.DeletionState)
 
 	return app, nil
 }
@@ -350,48 +382,75 @@ func setPbTimestamp(ts *gpb.Timestamp, t time.Time) {
 }
 
 func (s *server) DeleteApplication(ctx context.Context, app *pb.Application) (*pb.Empty, error) {
-	// start a terraform job in the background
 	go s.deleteAppInfrastructure(app)
-
-	tx, err := s.db.Begin()
-	if err != nil {
-		return nil, errors.Wrap(err, "beginning transaction")
-	}
-
-	query := `DELETE FROM applications WHERE id = $1`
-	if _, err := tx.Exec(query, app.Id); err != nil {
-		return nil, errors.Wrap(err, "deleting application")
-	}
-
-	if err := tx.Commit(); err != nil {
-		return nil, errors.Wrap(err, "committing transaction")
-	}
 
 	return &pb.Empty{}, nil
 }
 
 func (s *server) deleteAppInfrastructure(app *pb.Application) {
-	scriptsPath := filepath.Join("ops", "aws", "terraform", "scripts")
-
-	slug := app.GetSlug()
-	var tempDir string
-
-	log.Printf("running terraform destroy")
-	cmd := exec.Command("./delete_app_tf.sh",
-		"-a", slug,
-		"-e", "test")
-	cmd.Dir = scriptsPath
-	var buf bytes.Buffer
-	cmd.Stdout = &buf
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		log.Printf("error running delete_app_tf.sh")
-	}
-	tempDir = strings.TrimSpace(buf.String())
-
-	if tempDir != "" {
-		defer os.RemoveAll(tempDir)
+	setState := func(state pb.DeletionState) {
+		app.DeletionState = state
+		updateSQL := "UPDATE applications SET deletion_state = $1 WHERE id = $2"
+		if _, err := s.db.Exec(updateSQL, deletionStateTypePbToModel(state), app.GetId()); err != nil {
+			errors.Wrap(err, "updating applications table")
+		}
 	}
 
-	log.Printf("Success - all application resources destroyed.")
+	do := func(f func() error) {
+		if app.DeletionState != pb.DeletionState_DELETE_INFRASTRUCTURE_FAILED {
+			if err := f(); err != nil {
+				log.Printf("app deletion failed: %v", err)
+				setState(pb.DeletionState_DELETE_INFRASTRUCTURE_FAILED)
+			}
+		}
+	}
+
+	switch app.GetDeletionState() {
+	case pb.DeletionState_NOT_DELETED:
+		setState(pb.DeletionState_DELETE_INFRASTRUCTURE_WAIT)
+		scriptsPath := filepath.Join("ops", "aws", "terraform", "scripts")
+
+		slug := app.GetSlug()
+		var tempDir string
+
+		do(func() error {
+			log.Printf("running terraform destroy")
+			cmd := exec.Command("./delete_app_tf.sh",
+				"-a", slug,
+				"-e", "test")
+			cmd.Dir = scriptsPath
+			var buf bytes.Buffer
+			cmd.Stdout = &buf
+			cmd.Stderr = os.Stderr
+			if err := cmd.Run(); err != nil {
+				return errors.Wrap(err, "running delete_app_tf.sh")
+			}
+			tempDir = strings.TrimSpace(buf.String())
+			return nil
+		})
+
+		if tempDir != "" {
+			defer os.RemoveAll(tempDir)
+		}
+
+		do(func() error {
+			setState(pb.DeletionState_DELETE_INFRASTRUCTURE_SUCCEEDED)
+			updateSQL := "UPDATE applications SET deleted_at = $1 WHERE id = $2"
+			if _, err := s.db.Exec(updateSQL, time.Now(), app.GetId()); err != nil {
+				errors.Wrap(err, "updating applications table")
+			}
+			log.Printf("done")
+			if err := s.AddApplicationActivity(context.Background(), app.GetId(), app.GetUserId(), models.ActivityTypeApplicationDeleted); err != nil {
+				return errors.Wrap(err, "error adding activity")
+			}
+			return nil
+		})
+	case pb.DeletionState_DELETE_INFRASTRUCTURE_SUCCEEDED:
+		log.Printf("deletion already succeeded, doing nothing")
+	case pb.DeletionState_DELETE_INFRASTRUCTURE_FAILED:
+		// TODO(paulsmith): advance this to
+		// DELETE_INFRASTRUCTURE_WAIT state with some retry
+		// logic like max attempts
+		log.Printf("deletion previously failed, should retry")
+	}
 }
