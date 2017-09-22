@@ -6,7 +6,7 @@ class ApplicationsController < ApplicationController
 
   def index
     req = Soapbox::ListApplicationRequest.new(user_id: current_user.id)
-    res = $api_client.list_applications(req)
+    res = $api_client.list_applications(req, user_metadata)
     if res.applications.count == 0
       redirect_to new_application_path
     else
@@ -49,7 +49,7 @@ class ApplicationsController < ApplicationController
                                      github_repo_url: @form.github_repo_url,
                                      type: type,
                                      user_id: current_user.id)
-      app = $api_client.create_application(app)
+      app = $api_client.create_application(app, user_metadata)
       redirect_to application_path(app.id)
     else
       render :new
@@ -58,10 +58,10 @@ class ApplicationsController < ApplicationController
 
   def show
     req = Soapbox::GetApplicationRequest.new(id: params[:id].to_i)
-    @app = $api_client.get_application(req)
+    @app = $api_client.get_application(req, user_metadata)
 
     req = Soapbox::ListDeploymentRequest.new(application_id: params[:id].to_i)
-    res = $api_client.deployments.list_deployments(req)
+    res = $api_client.deployments.list_deployments(req, user_metadata)
     @deployment = res.deployments.sort_by { |d| -d.created_at.seconds }.first
 
     # strip the oauth token from the URL if present and remove trailing `.git`
@@ -87,11 +87,11 @@ class ApplicationsController < ApplicationController
 
   def get_environments(app_id)
     req = Soapbox::ListEnvironmentRequest.new(application_id: app_id)
-    $api_client.environments.list_environments(req).environments
+    $api_client.environments.list_environments(req, user_metadata).environments
   end
 
   def get_latest_deploy(app_id, env_id)
     req = Soapbox::GetLatestDeploymentRequest.new(application_id: app_id, environment_id: env_id)
-    $api_client.deployments.get_latest_deployment(req)
+    $api_client.deployments.get_latest_deployment(req, user_metadata)
   end
 end

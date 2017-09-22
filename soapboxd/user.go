@@ -5,6 +5,7 @@ import (
 	"crypto/sha512"
 	"database/sql"
 	"encoding/base64"
+	"fmt"
 	"os"
 
 	"github.com/adhocteam/soapbox/models"
@@ -109,7 +110,7 @@ func (s *server) LoginUser(ctx context.Context, req *pb.LoginUserRequest) (*pb.L
 
 	res.User = user
 	res.Error = ""
-	res.Hmac = computeHmac512(string(user.Id), os.Getenv("LOGIN_SECRET_KEY"))
+	res.Hmac = computeHmac512(fmt.Sprint(user.Id), os.Getenv("LOGIN_SECRET_KEY"))
 
 	return res, nil
 }
@@ -130,8 +131,7 @@ func (s *server) AssignGithubOmniauthTokenToUser(ctx context.Context, user *pb.U
 }
 
 func computeHmac512(message string, secret string) string {
-	key := []byte(secret)
-	h := hmac.New(sha512.New, key)
+	h := hmac.New(sha512.New, []byte(secret))
 	h.Write([]byte(message))
 	return base64.StdEncoding.EncodeToString(h.Sum(nil))
 }

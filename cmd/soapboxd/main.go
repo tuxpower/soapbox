@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha512"
 	"database/sql"
+	"encoding/base64"
 	"flag"
 	"fmt"
 	"log"
@@ -129,6 +130,11 @@ func loginInterceptor(
 	info *grpc.UnaryServerInfo,
 	handler grpc.UnaryHandler,
 ) (interface{}, error) {
+	if md, ok := metadata.FromContext(ctx); ok {
+		if _, ok := md["skip_auth"]; ok {
+			return handler(ctx, req)
+		}
+	}
 	if err := authorize(ctx); err != nil {
 		return nil, err
 	}
@@ -153,12 +159,15 @@ func (e *emptyMetadataErr) Error() string {
 func authorize(ctx context.Context) error {
 	if md, ok := metadata.FromContext(ctx); ok {
 		userID := []byte(md["user_id"][0])
-		sentToken := []byte(md["login_token"][0])
+		sentToken, err := base64.StdEncoding.DecodeString(md["login_token"][0])
+		if err != nil {
+			return err
+		}
 		key := []byte(os.Getenv("LOGIN_SECRET_KEY"))
 		h := hmac.New(sha512.New, key)
 		h.Write(userID)
 		calculated := h.Sum(nil)
-		if hmac.Equal(calculated, sentToken) {
+		if hmac.Equal(sentToken, calculated) {
 			return nil
 		}
 
