@@ -22,7 +22,7 @@ RSpec.describe ApplicationsController, type: :controller do
     before do
       allow($api_client).to receive(:get_application) { app }
       allow(Soapbox::ListDeploymentRequest).to receive(:new) { nil }
-      allow($api_deployment_client).to receive(:list_deployments) {
+      allow($api_client.deployments).to receive(:list_deployments) {
         ::Soapbox::ListDeploymentResponse.new(
           deployments: [dep]
         )

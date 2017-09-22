@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/hmac"
+	"crypto/sha512"
 	"database/sql"
 	"flag"
 	"fmt"
@@ -18,6 +20,7 @@ import (
 	_ "github.com/lib/pq"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 )
 
 func main() {
@@ -49,8 +52,9 @@ func main() {
 	}
 
 	var opts []grpc.ServerOption
+	opts = append(opts, serverInterceptor(loginInterceptor))
 	if *logTiming {
-		opts = append(opts, serverInterceptor())
+		opts = append(opts, serverInterceptor(timingInterceptor))
 	}
 
 	server := grpc.NewServer(opts...)
@@ -103,8 +107,8 @@ func getConfig() *soapbox.Config {
 	return c
 }
 
-func serverInterceptor() grpc.ServerOption {
-	return grpc.UnaryInterceptor(grpc.UnaryServerInterceptor(timingInterceptor))
+func serverInterceptor(interceptor grpc.UnaryServerInterceptor) grpc.ServerOption {
+	return grpc.UnaryInterceptor(interceptor)
 }
 
 func timingInterceptor(
@@ -117,4 +121,49 @@ func timingInterceptor(
 	resp, err := handler(ctx, req)
 	log.Printf("method=%s duration=%s error=%v", info.FullMethod, time.Since(t0), err)
 	return resp, err
+}
+
+func loginInterceptor(
+	ctx context.Context,
+	req interface{},
+	info *grpc.UnaryServerInfo,
+	handler grpc.UnaryHandler,
+) (interface{}, error) {
+	if err := authorize(ctx); err != nil {
+		return nil, err
+	}
+
+	return handler(ctx, req)
+}
+
+type accessDeniedErr struct {
+	userID []byte
+}
+
+func (e *accessDeniedErr) Error() string {
+	return fmt.Sprintf("Incorrect login token for user %s", e.userID)
+}
+
+type emptyMetadataErr struct{}
+
+func (e *emptyMetadataErr) Error() string {
+	return fmt.Sprint("No metadata attached with request")
+}
+
+func authorize(ctx context.Context) error {
+	if md, ok := metadata.FromContext(ctx); ok {
+		userID := []byte(md["user_id"][0])
+		sentToken := []byte(md["login_token"][0])
+		key := []byte(os.Getenv("LOGIN_SECRET_KEY"))
+		h := hmac.New(sha512.New, key)
+		h.Write(userID)
+		calculated := h.Sum(nil)
+		if hmac.Equal(calculated, sentToken) {
+			return nil
+		}
+
+		return &accessDeniedErr{userID}
+	}
+
+	return &emptyMetadataErr{}
 }

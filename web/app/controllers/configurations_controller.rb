@@ -24,7 +24,7 @@ class ConfigurationsController < ApplicationController
       puts vars
       env_id = params[:environment_id].to_i
       req = Soapbox::CreateConfigurationRequest.new(environment_id: env_id, config_vars: vars)
-      $api_configurations_client.create_configuration(req)
+      $api_client.configurations.create_configuration(req)
       redirect_to application_environment_path(id: env_id)
     else
       render :index
@@ -37,12 +37,12 @@ class ConfigurationsController < ApplicationController
     req = Soapbox::GetApplicationRequest.new(id: params[:application_id].to_i)
     @app = $api_client.get_application(req)
     req = Soapbox::GetEnvironmentRequest.new(id: params[:environment_id].to_i)
-    @environment = $api_environment_client.get_environment(req)
+    @environment = $api_client.environments.get_environment(req)
   end
 
   def get_latest_config(env)
     req = Soapbox::GetLatestConfigurationRequest.new(environment_id: env.id)
-    $api_configurations_client.get_latest_configuration(req)
+    $api_client.configurations.get_latest_configuration(req)
   end
 
   def form_from_config(config)

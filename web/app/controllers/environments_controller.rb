@@ -6,7 +6,7 @@ class EnvironmentsController < ApplicationController
   def index
     app_id = params[:application_id].to_i
     req = Soapbox::ListEnvironmentRequest.new(application_id: app_id)
-    res = $api_environment_client.list_environments(req)
+    res = $api_client.environments.list_environments(req)
     if res.environments.count == 0
       redirect_to new_application_environment_path
     else
@@ -30,7 +30,7 @@ class EnvironmentsController < ApplicationController
     @form = CreateEnvironmentForm.new(params[:environment])
     if @form.valid?
       env = Soapbox::Environment.new(application_id: params[:application_id].to_i, name: @form.name)
-      $api_environment_client.create_environment(env)
+      $api_client.environments.create_environment(env)
       redirect_to application_environments_path
     else
       render :new
@@ -44,7 +44,7 @@ class EnvironmentsController < ApplicationController
 
   def destroy
     req = Soapbox::DestroyEnvironmentRequest.new(id: params[:id].to_i)
-    $api_environment_client.destroy_environment(req)
+    $api_client.environments.destroy_environment(req)
     redirect_to application_environments_path
   end
 
@@ -57,11 +57,11 @@ class EnvironmentsController < ApplicationController
 
   def get_environment(id)
     req = Soapbox::GetEnvironmentRequest.new(id: id)
-    $api_environment_client.get_environment(req)
+    $api_client.environments.get_environment(req)
   end
 
   def get_latest_deploy(app_id, env_id)
     req = Soapbox::GetLatestDeploymentRequest.new(application_id: app_id, environment_id: env_id)
-    $api_deployment_client.get_latest_deployment(req)
+    $api_client.deployments.get_latest_deployment(req)
   end
 end

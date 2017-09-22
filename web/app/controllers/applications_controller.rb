@@ -61,7 +61,7 @@ class ApplicationsController < ApplicationController
     @app = $api_client.get_application(req)
 
     req = Soapbox::ListDeploymentRequest.new(application_id: params[:id].to_i)
-    res = $api_deployment_client.list_deployments(req)
+    res = $api_client.deployments.list_deployments(req)
     @deployment = res.deployments.sort_by { |d| -d.created_at.seconds }.first
 
     # strip the oauth token from the URL if present and remove trailing `.git`
@@ -87,11 +87,11 @@ class ApplicationsController < ApplicationController
 
   def get_environments(app_id)
     req = Soapbox::ListEnvironmentRequest.new(application_id: app_id)
-    $api_environment_client.list_environments(req).environments
+    $api_client.environments.list_environments(req).environments
   end
 
   def get_latest_deploy(app_id, env_id)
     req = Soapbox::GetLatestDeploymentRequest.new(application_id: app_id, environment_id: env_id)
-    $api_deployment_client.get_latest_deployment(req)
+    $api_client.deployments.get_latest_deployment(req)
   end
 end

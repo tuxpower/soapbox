@@ -38,30 +38,30 @@ class DashboardController < ApplicationController
   end
 
   def get_activities
-    @activities = $api_activity_client
+    @activities = $api_client.activities
       .list_activities(Soapbox::Empty.new)
       .activities.sort_by {|a| a.created_at.seconds}.reverse
   end
 
   def get_user_name(user_id)
     req = Soapbox::GetUserRequest.new(id: user_id)
-    @user_name = $api_user_client.get_user(req)
+    @user_name = $api_client.users.get_user(req)
     @user_name.name
   end
 
   def get_environment_name(env_id)
     req = Soapbox::GetEnvironmentRequest.new(id: env_id)
-    @env = $api_environment_client.get_environment(req)
+    @env = $api_client.environments.get_environment(req)
     @env.name
   end
 
   def get_environments(app_id)
     req = Soapbox::ListEnvironmentRequest.new(application_id: app_id)
-    $api_environment_client.list_environments(req).environments
+    $api_client.environments.list_environments(req).environments
   end
 
   def get_latest_deploy(app_id, env_id)
     req = Soapbox::GetLatestDeploymentRequest.new(application_id: app_id, environment_id: env_id)
-    $api_deployment_client.get_latest_deployment(req)
+    $api_client.deployments.get_latest_deployment(req)
   end
 end
