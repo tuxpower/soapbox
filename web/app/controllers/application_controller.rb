@@ -23,7 +23,7 @@ class ApplicationController < ActionController::Base
 
   def get_user(email)
     req = Soapbox::GetUserRequest.new(email: email)
-    $api_client.users.get_user(req, metadata: { skip_auth: 'true' })
+    $api_client.users.get_user(req)
   end
 
   def user_metadata

@@ -12,7 +12,7 @@ class UsersController < ApplicationController
     @form = CreateUserForm.new(params[:user])
     if @form.valid?
       req = Soapbox::CreateUserRequest.new(name: @form.name, email: @form.email, password: @form.password)
-      @user = $api_client.users.create_user(req, skip_auth: true)
+      @user = $api_client.users.create_user(req)
       session[:current_user_email] = @user.email
       redirect_to profile_user_path
     else
@@ -28,7 +28,7 @@ class UsersController < ApplicationController
     @form = LoginUserForm.new(params[:user])
     if @form.valid?
       req = Soapbox::LoginUserRequest.new(email: @form.email, password: @form.password)
-      res = $api_client.users.login_user(req, metadata: { skip_auth: 'true' })
+      res = $api_client.users.login_user(req)
       if !res.error.blank?
         @form.errors.add(:password, :invalid)
         render :login

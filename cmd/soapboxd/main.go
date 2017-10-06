@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/adhocteam/soapbox"
@@ -130,16 +131,15 @@ func loginInterceptor(
 	info *grpc.UnaryServerInfo,
 	handler grpc.UnaryHandler,
 ) (interface{}, error) {
-	if md, ok := metadata.FromContext(ctx); ok {
-		if _, ok := md["skip_auth"]; ok {
-			return handler(ctx, req)
+	switch strings.Split(info.FullMethod, "/")[2] {
+	case "LoginUser", "CreateUser", "GetUser":
+		return handler(ctx, req)
+	default:
+		if err := authorize(ctx); err != nil {
+			return nil, err
 		}
+		return handler(ctx, req)
 	}
-	if err := authorize(ctx); err != nil {
-		return nil, err
-	}
-
-	return handler(ctx, req)
 }
 
 type accessDeniedErr struct {
