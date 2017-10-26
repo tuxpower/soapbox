@@ -28,6 +28,7 @@ create table applications (
        github_repo_url text,
        dockerfile_path text,
        entrypoint_override text,
+       aws_encryption_key_arn text not null default '',
        creation_state creation_state_type not null default 'CREATE_INFRASTRUCTURE_WAIT',
        created_at timestamp with time zone not null default now(),
        updated_at timestamp with time zone not null default now()
