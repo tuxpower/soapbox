@@ -28,6 +28,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/autoscaling"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/elbv2"
+	"github.com/aws/aws-sdk-go/service/kms"
 	"github.com/aws/aws-sdk-go/service/s3"
 	gpb "github.com/golang/protobuf/ptypes/timestamp"
 	"github.com/pkg/errors"
@@ -362,7 +363,7 @@ cat << EOF > /etc/sv/$APP_NAME/run
 #!/bin/bash
 exec 2>&1 chpst -e /etc/sv/$APP_NAME/env $DOCKER run \
 {{range .Variables -}}
-	--env {{.Name}} \
+  --env {{.Name}} \
 {{end -}}
 --env PORT \
 --rm --name $APP_NAME-run -p 9090:$PORT "$IMAGE"
@@ -730,6 +731,8 @@ func createLaunchConfig(config *soapbox.Config, app *application, env *environme
 	return name, nil
 }
 
+// TODO(louisfettet): It would probably be more intuitive to have these AWS S3
+//   and KMS functions in a separate utility.
 type s3storage struct {
 	svc *s3.S3
 }
@@ -751,6 +754,22 @@ func (s *s3storage) uploadFile(bucket string, key string, filename string) error
 	}
 	_, err = s.svc.PutObject(input)
 	return err
+}
+
+type kmsClient struct {
+	svc *kms.KMS
+}
+
+func newKMSClient(sess *session.Session) *kmsClient {
+	return &kmsClient{svc: kms.New(sess)}
+}
+
+func (k *kmsClient) encrypt(kmsKeyARN string, content []byte) (*kms.EncryptOutput, error) {
+	input := &kms.EncryptInput{
+		KeyId:     aws.String(kmsKeyARN),
+		Plaintext: []byte(content),
+	}
+	return k.svc.Encrypt(input)
 }
 
 type application struct {

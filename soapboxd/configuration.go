@@ -2,10 +2,16 @@ package soapboxd
 
 import (
 	"database/sql"
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"path/filepath"
 	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"github.com/aws/aws-sdk-go/aws/session"
 
 	"github.com/adhocteam/soapbox/proto"
 	gpb "github.com/golang/protobuf/ptypes/timestamp"
@@ -158,6 +164,11 @@ RETURNING created_at`
 	}
 	setPbTimestamp(resp.CreatedAt, createdAt)
 
+	err = s.UploadConfigurationsToS3(ctx, req, resp)
+	if err != nil {
+		return nil, errors.Wrap(err, "uploading configurations to S3")
+	}
+
 	return resp, nil
 }
 
@@ -185,4 +196,64 @@ func (s *server) DeleteConfiguration(ctx context.Context, req *proto.DeleteConfi
 	}
 
 	return &proto.Empty{}, nil
+}
+
+// TODO(louisfettet): Move to using _only_ S3 as the source of truth for
+//   configurations.  Once the KMS encryption & decryption and S3 uploading /
+//   downloading is all implemented, we should have no need for storing
+//   configurations (whether they are encrypted or not) in the soapbox database.
+func (s *server) UploadConfigurationsToS3(ctx context.Context, req *proto.CreateConfigurationRequest, config *proto.Configuration) error {
+	// First, get all of the application data.
+	env, err := s.GetEnvironment(ctx, &proto.GetEnvironmentRequest{Id: req.GetEnvironmentId()})
+	if err != nil {
+		return errors.Wrap(err, "getting environment")
+	}
+	app, err := s.GetApplication(ctx, &proto.GetApplicationRequest{Id: env.GetApplicationId()})
+	if err != nil {
+		return errors.Wrap(err, "getting application")
+	}
+
+	// Encode configurations to JSON.
+	configVarMap := make(map[string]string)
+	for _, configVar := range config.ConfigVars {
+		configVarMap[configVar.GetName()] = configVar.GetValue()
+	}
+	serializedConfigs, err := json.Marshal(configVarMap)
+	if err != nil {
+		return errors.Wrap(err, "serializing configurations to JSON")
+	}
+
+	// Create a new AWS session.
+	sess, err := session.NewSession()
+	if err != nil {
+		return errors.Wrap(err, "creating new session")
+	}
+
+	// Encrypt the JSON using KMS (see AWS methods in deployment.go).
+	// The encryption key is stored in the applications table of the database.
+	encryptedConfigs, err := newKMSClient(sess).encrypt(app.GetAwsEncryptionKeyArn(), serializedConfigs)
+	if err != nil {
+		return errors.Wrap(err, "encrypting configurations")
+	}
+
+	// Save JSON to temporary file.
+	configDirName, err := ioutil.TempDir("", "configs")
+	if err != nil {
+		return errors.Wrap(err, "creating temporary directory")
+	}
+	appSlug := app.GetSlug()
+	configVersion := config.GetVersion()
+	configFileName := fmt.Sprintf("%s-configuration-v%d.json", appSlug, configVersion)
+	configFilePath := filepath.Join(configDirName, configFileName)
+	err = ioutil.WriteFile(configFilePath, encryptedConfigs.CiphertextBlob, 0644)
+	if err != nil {
+		return errors.Wrap(err, "writing encrypted configurations to file")
+	}
+
+	// Upload the encrypted configs JSON file to S3 (see AWS methods in
+	//   deployment.go).
+	envSlug := env.GetSlug()
+	configObjectKey := fmt.Sprintf("%s/%s/%s", appSlug, envSlug, configFileName)
+	soapboxConfigsBucket := "soapbox-app-configs"
+	return newS3Storage(sess).uploadFile(soapboxConfigsBucket, configObjectKey, configFilePath)
 }
