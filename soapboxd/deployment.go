@@ -756,6 +756,27 @@ func (s *s3storage) uploadFile(bucket string, key string, filename string) error
 	return err
 }
 
+func (s *s3storage) downloadFile(bucket string, key string) ([]byte, error) {
+	input := &s3.GetObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	}
+
+	object, err := s.svc.GetObject(input)
+	if err != nil {
+		return fmt.Errorf("downloading file %s: %v", key, err)
+	}
+
+	defer object.Body.Close()
+
+	buf := bytes.New.Buffer(nil)
+	if _, err := io.Copy(buf, object.Body); err != nil {
+		return fmt.Errorf("copying file %s: %v", key, err)
+	}
+
+	return buf.Bytes(), nil
+}
+
 type kmsClient struct {
 	svc *kms.KMS
 }
@@ -770,6 +791,19 @@ func (k *kmsClient) encrypt(kmsKeyARN string, content []byte) (*kms.EncryptOutpu
 		Plaintext: []byte(content),
 	}
 	return k.svc.Encrypt(input)
+}
+
+func (k *kmsClient) decrypt(secretBytes []byte) (string, error) {
+	params := &kms.DecryptInput{
+		CiphertextBlob: secretBytes,
+	}
+
+	resp, err := k.svc.Decrypt(params)
+	if err != nil {
+		return "", err
+	}
+
+	return string(resp.Plantext), nil
 }
 
 type application struct {
